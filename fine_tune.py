@@ -14,6 +14,12 @@ from peft import LoraConfig, PeftModel
 from trl import SFTTrainer
 from stat_utils import print_gpu_utilization, print_summary
 
+# os.environ["MASTER_ADDR"] = "localhost"
+# os.environ["MASTER_PORT"] = "9994"  # modify if RuntimeError: Address already in use
+# os.environ["RANK"] = "0"
+# os.environ["LOCAL_RANK"] = "0"
+# os.environ["WORLD_SIZE"] = "1"
+
 # The model that you want to train from the Hugging Face hub
 model_name = "NousResearch/Llama-2-7b-chat-hf"
 
@@ -189,6 +195,7 @@ training_arguments = TrainingArguments(
     lr_scheduler_type=lr_scheduler_type,
     report_to="tensorboard",
     skip_memory_metrics=False,
+    gradient_checkpointing=gradient_checkpointing,
 )
 
 # Set supervised fine-tuning parameters
@@ -204,6 +211,7 @@ trainer = SFTTrainer(
 )
 
 # Train model
+print_gpu_utilization()
 result = trainer.train()
 
 # Save trained model
