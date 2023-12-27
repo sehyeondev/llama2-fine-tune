@@ -38,10 +38,9 @@ from pynvml import nvmlInit, nvmlDeviceGetHandleByIndex, nvmlDeviceGetMemoryInfo
 logger = logging.get_logger(__name__)
 
 def gpu_utilization():
-    nvmlInit()
-    handle = nvmlDeviceGetHandleByIndex(0)
-    info = nvmlDeviceGetMemoryInfo(handle)
-    return f"{info.used//1024**2} MB"
+    info = torch.cuda.memory_allocated()
+    return info//1024**2
+
 
 _CONFIG_FOR_DOC = "LlamaConfig"
 
@@ -674,6 +673,8 @@ class LlamaModel(LlamaPreTrainedModel):
         all_self_attns = () if output_attentions else None
         next_decoder_cache = () if use_cache else None
 
+        past_gpu_util = "0"
+        rep_count = 0
         for idx, decoder_layer in enumerate(self.layers):
             if output_hidden_states:
                 all_hidden_states += (hidden_states,)
@@ -696,8 +697,10 @@ class LlamaModel(LlamaPreTrainedModel):
                     position_ids,
                     None,
                 )
-            
-                logger.info(f"Layer {idx}: {gpu_utilization()}")
+                gpu_util = gpu_utilization()
+                
+                output = f"Layer {idx}: {gpu_util} MB"
+                # print(output)
             else:
                 layer_outputs = decoder_layer(
                     hidden_states,
