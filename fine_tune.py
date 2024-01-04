@@ -14,12 +14,6 @@ from peft import LoraConfig, PeftModel
 from trl import SFTTrainer
 from stat_utils import print_gpu_utilization, print_summary
 
-# os.environ["MASTER_ADDR"] = "localhost"
-# os.environ["MASTER_PORT"] = "9994"  # modify if RuntimeError: Address already in use
-# os.environ["RANK"] = "0"
-# os.environ["LOCAL_RANK"] = "0"
-# os.environ["WORLD_SIZE"] = "1"
-
 # The model that you want to train from the Hugging Face hub
 model_name = "NousResearch/Llama-2-7b-chat-hf"
 
@@ -46,7 +40,7 @@ lora_dropout = 0.1
 # bitsandbytes parameters
 ################################################################################
 
-# Activate 4-bit precision base model loading
+# Activate 4-bit precision base model loading 
 use_4bit = True
 
 # Compute dtype for 4-bit base models
@@ -73,7 +67,7 @@ fp16 = False
 bf16 = False
 
 # Batch size per GPU for training
-per_device_train_batch_size = 4
+per_device_train_batch_size = 1
 
 # Batch size per GPU for evaluation
 per_device_eval_batch_size = 4
@@ -110,7 +104,7 @@ warmup_ratio = 0.03
 group_by_length = True
 
 # Save checkpoint every X updates steps
-save_steps = 25
+# save_steps = 25
 
 # Log every X updates steps
 logging_steps = 1
@@ -126,7 +120,7 @@ max_seq_length = None
 packing = False
 
 # Load the entire model on the GPU 0
-# device_map = {"": 0}
+device_map = {"": 0}
 
 # Load dataset (you can process it here)
 dataset = load_dataset(dataset_name, split="train")
@@ -153,7 +147,7 @@ if compute_dtype == torch.float16 and use_4bit:
 model = AutoModelForCausalLM.from_pretrained(
     model_name,
     quantization_config=bnb_config,
-    # device_map=device_map
+    device_map=device_map
 )
 model.config.use_cache = False
 model.config.pretraining_tp = 1
@@ -174,6 +168,12 @@ peft_config = LoraConfig(
     task_type="CAUSAL_LM",
 )
 
+# os.environ["MASTER_ADDR"] = "localhost"
+# os.environ["MASTER_PORT"] = "9994"  # modify if RuntimeError: Address already in use
+# os.environ["RANK"] = "0"
+# os.environ["LOCAL_RANK"] = "0"
+# os.environ["WORLD_SIZE"] = "1"
+
 # Set training parameters
 training_arguments = TrainingArguments(
     output_dir=output_dir,
@@ -181,7 +181,7 @@ training_arguments = TrainingArguments(
     per_device_train_batch_size=per_device_train_batch_size,
     gradient_accumulation_steps=gradient_accumulation_steps,
     optim=optim,
-    save_steps=save_steps,
+    # save_steps=save_steps,
     logging_steps=logging_steps,
     log_level="debug",
     learning_rate=learning_rate,
@@ -196,6 +196,7 @@ training_arguments = TrainingArguments(
     report_to="tensorboard",
     skip_memory_metrics=False,
     gradient_checkpointing=gradient_checkpointing,
+    # deepspeed="ds_config_zero3.json",
 )
 
 # Set supervised fine-tuning parameters
@@ -210,9 +211,18 @@ trainer = SFTTrainer(
     packing=packing,
 )
 
+def count_parameters(model: torch.nn.Module):
+    print("num total param",  sum(p.numel() for p in model.parameters()))
+    print("num trainable param",  sum(p.numel() for p in model.parameters() if p.requires_grad))
+    print("total param size",  sum(p.numel() * p.element_size() for p in model.parameters()))
+    print("trainable param size",  sum(p.numel() * p.element_size() for p in model.parameters() if p.requires_grad))
+
+count_parameters(model)
+print('Active CUDA Device: GPU', torch.cuda.current_device())
 # Train model
 print_gpu_utilization()
-result = trainer.train()
+# result = trainer.train()
+
 
 # Save trained model
 # trainer.model.save_pretrained(new_model)

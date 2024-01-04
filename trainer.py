@@ -15,7 +15,7 @@
 """
 The Trainer class, to easily train a 🤗 Transformers from scratch or finetune it on a new task.
 """
-from pynvml import nvmlInit, nvmlDeviceGetHandleByIndex, nvmlDeviceGetMemoryInfo
+
 import contextlib
 import copy
 import functools
@@ -1693,14 +1693,6 @@ class Trainer:
         logger.info(f"  Gradient Accumulation steps = {args.gradient_accumulation_steps}")
         logger.info(f"  Total optimization steps = {max_steps:,}")
         logger.info(f"  Number of trainable parameters = {get_model_param_count(model, trainable_only=True):,}")
-        
-        def print_gpu_utilization():
-            nvmlInit()
-            handle = nvmlDeviceGetHandleByIndex(0)
-            info = nvmlDeviceGetMemoryInfo(handle)
-            return f"GPU memory occupied: {info.used//1024**2} MB."
-        
-        logger.info(f"  GPU Utilization: {print_gpu_utilization()}")
 
         self.state.epoch = 0
         start_time = time.time()
@@ -1793,6 +1785,7 @@ class Trainer:
 
             step = -1
             for step, inputs in enumerate(epoch_iterator):
+                print(f"***** Step {self.state.global_step} *****")
                 total_batched_samples += 1
                 if rng_to_sync:
                     self._load_rng_state(resume_from_checkpoint)
@@ -1907,6 +1900,7 @@ class Trainer:
                     self.control = self.callback_handler.on_step_end(args, self.state, self.control)
 
                     self._maybe_log_save_evaluate(tr_loss, model, trial, epoch, ignore_keys_for_eval)
+                    
                 else:
                     self.control = self.callback_handler.on_substep_end(args, self.state, self.control)
 
@@ -2210,15 +2204,8 @@ class Trainer:
             # reset tr_loss to zero
             tr_loss -= tr_loss
 
-            def gpu_utilization():
-                nvmlInit()
-                handle = nvmlDeviceGetHandleByIndex(0)
-                info = nvmlDeviceGetMemoryInfo(handle)
-                return f"{info.used//1024**2} MB"
-
             logs["loss"] = round(tr_loss_scalar / (self.state.global_step - self._globalstep_last_logged), 4)
             logs["learning_rate"] = self._get_learning_rate()
-            logs["gpu_util"] = gpu_utilization()
 
             self._total_loss_scalar += tr_loss_scalar
             self._globalstep_last_logged = self.state.global_step
@@ -2678,6 +2665,13 @@ class Trainer:
                 scaled_loss.backward()
         else:
             self.accelerator.backward(loss)
+        
+        def gpu_utilization():
+            info = torch.cuda.memory_allocated()
+            return info//1024**2
+
+        output = f"BW: {gpu_utilization()} MB"
+        print(output)
 
         return loss.detach() / self.args.gradient_accumulation_steps
 

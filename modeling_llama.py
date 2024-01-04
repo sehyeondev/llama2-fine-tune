@@ -34,14 +34,15 @@ from ...utils import add_start_docstrings, add_start_docstrings_to_model_forward
 from .configuration_llama import LlamaConfig
 
 from pynvml import nvmlInit, nvmlDeviceGetHandleByIndex, nvmlDeviceGetMemoryInfo
+import time
+import nvtx
 
 logger = logging.get_logger(__name__)
 
 def gpu_utilization():
-    nvmlInit()
-    handle = nvmlDeviceGetHandleByIndex(0)
-    info = nvmlDeviceGetMemoryInfo(handle)
-    return f"{info.used//1024**2} MB"
+    info = torch.cuda.memory_allocated()
+    return info//1024**2
+
 
 _CONFIG_FOR_DOC = "LlamaConfig"
 
@@ -559,6 +560,7 @@ class LlamaModel(LlamaPreTrainedModel):
         config: LlamaConfig
     """
 
+
     def __init__(self, config: LlamaConfig):
         super().__init__(config)
         self.padding_idx = config.pad_token_id
@@ -571,6 +573,12 @@ class LlamaModel(LlamaPreTrainedModel):
         self.gradient_checkpointing = False
         # Initialize weights and apply final processing
         self.post_init()
+
+        for idx, layer in enumerate(self.layers):
+            def backward_hook(module, tensor_in, tensor_out, idx=idx):
+                print(f"Backward {idx}: {gpu_utilization()} MB")
+                pass
+            layer.register_full_backward_hook(backward_hook)
 
     def get_input_embeddings(self):
         return self.embed_tokens
@@ -674,47 +682,55 @@ class LlamaModel(LlamaPreTrainedModel):
         all_self_attns = () if output_attentions else None
         next_decoder_cache = () if use_cache else None
 
+        past_gpu_util = "0"
+        rep_count = 0
         for idx, decoder_layer in enumerate(self.layers):
-            if output_hidden_states:
-                all_hidden_states += (hidden_states,)
+            with nvtx.annotate(f"Layer {idx} forward", color="orange"):
+                start_time = time.time()
+                if output_hidden_states:
+                    all_hidden_states += (hidden_states,)
 
-            past_key_value = past_key_values[idx] if past_key_values is not None else None
+                past_key_value = past_key_values[idx] if past_key_values is not None else None
 
-            if self.gradient_checkpointing and self.training:
+                if self.gradient_checkpointing and self.training:
 
-                def create_custom_forward(module):
-                    def custom_forward(*inputs):
-                        # None for past_key_value
-                        return module(*inputs, output_attentions, None)
+                    def create_custom_forward(module):
+                        def custom_forward(*inputs):
+                            # None for past_key_value
+                            return module(*inputs, output_attentions, None)
 
-                    return custom_forward
+                        return custom_forward
 
-                layer_outputs = torch.utils.checkpoint.checkpoint(
-                    create_custom_forward(decoder_layer),
-                    hidden_states,
-                    attention_mask,
-                    position_ids,
-                    None,
-                )
-            
-                logger.info(f"Layer {idx}: {gpu_utilization()}")
-            else:
-                layer_outputs = decoder_layer(
-                    hidden_states,
-                    attention_mask=attention_mask,
-                    position_ids=position_ids,
-                    past_key_value=past_key_value,
-                    output_attentions=output_attentions,
-                    use_cache=use_cache,
-                )
+                    layer_outputs = torch.utils.checkpoint.checkpoint(
+                        create_custom_forward(decoder_layer),
+                        hidden_states,
+                        attention_mask,
+                        position_ids,
+                        None,
+                    )
+                    gpu_util = gpu_utilization()
+                    
+                    output = f"Forward {idx}: {gpu_util} MB"
+                    end_time = time.time()
+                    print(output)
+                    print(f"fw time {idx}: {end_time - start_time}")
+                else:
+                    layer_outputs = decoder_layer(
+                        hidden_states,
+                        attention_mask=attention_mask,
+                        position_ids=position_ids,
+                        past_key_value=past_key_value,
+                        output_attentions=output_attentions,
+                        use_cache=use_cache,
+                    )
 
-            hidden_states = layer_outputs[0]
+                hidden_states = layer_outputs[0]
 
-            if use_cache:
-                next_decoder_cache += (layer_outputs[2 if output_attentions else 1],)
+                if use_cache:
+                    next_decoder_cache += (layer_outputs[2 if output_attentions else 1],)
 
-            if output_attentions:
-                all_self_attns += (layer_outputs[1],)
+                if output_attentions:
+                    all_self_attns += (layer_outputs[1],)
 
         hidden_states = self.norm(hidden_states)
 
