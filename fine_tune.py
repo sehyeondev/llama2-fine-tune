@@ -15,7 +15,7 @@ from trl import SFTTrainer
 from stat_utils import print_gpu_utilization, print_summary
 
 # The model that you want to train from the Hugging Face hub
-model_name = "NousResearch/Llama-2-7b-chat-hf"
+model_name = "NousResearch/Nous-Hermes-Llama2-13b"
 
 # The instruction dataset to use
 dataset_name = "mlabonne/guanaco-llama2-1k"
@@ -35,22 +35,6 @@ lora_alpha = 16
 
 # Dropout probability for LoRA layers
 lora_dropout = 0.1
-
-################################################################################
-# bitsandbytes parameters
-################################################################################
-
-# Activate 4-bit precision base model loading 
-use_4bit = True
-
-# Compute dtype for 4-bit base models
-bnb_4bit_compute_dtype = "float16"
-
-# Quantization type (fp4 or nf4)
-bnb_4bit_quant_type = "nf4"
-
-# Activate nested quantization for 4-bit base models (double quantization)
-use_nested_quant = False
 
 ################################################################################
 # TrainingArguments parameters
@@ -88,7 +72,7 @@ learning_rate = 2e-4
 weight_decay = 0.001
 
 # Optimizer to use
-optim = "paged_adamw_32bit"
+optim = "paged_adamw_8bit"
 
 # Learning rate schedule (constant a bit better than cosine)
 lr_scheduler_type = "constant"
@@ -125,6 +109,22 @@ device_map = {"": 0}
 # Load dataset (you can process it here)
 dataset = load_dataset(dataset_name, split="train")
 
+################################################################################
+# bitsandbytes parameters
+################################################################################
+
+# Activate 4-bit precision base model loading 
+use_4bit = True
+
+# Compute dtype for 4-bit base models
+bnb_4bit_compute_dtype = "float16"
+
+# Quantization type (fp4 or nf4)
+bnb_4bit_quant_type = "nf4"
+
+# Activate nested quantization for 4-bit base models (double quantization)
+use_nested_quant = False
+
 # Load tokenizer and model with QLoRA configuration
 compute_dtype = getattr(torch, bnb_4bit_compute_dtype)
 
@@ -152,6 +152,14 @@ model = AutoModelForCausalLM.from_pretrained(
 model.config.use_cache = False
 model.config.pretraining_tp = 1
 
+
+def count_parameters(model: torch.nn.Module):
+    print("num total param",  sum(p.numel() for p in model.parameters()))
+    print("num trainable param",  sum(p.numel() for p in model.parameters() if p.requires_grad))
+    print("total param size",  sum(p.numel() * p.element_size() for p in model.parameters()))
+    print("trainable param size",  sum(p.numel() * p.element_size() for p in model.parameters() if p.requires_grad))
+
+
 print_gpu_utilization()
 
 # Load LLaMA tokenizer
@@ -168,11 +176,11 @@ peft_config = LoraConfig(
     task_type="CAUSAL_LM",
 )
 
-# os.environ["MASTER_ADDR"] = "localhost"
-# os.environ["MASTER_PORT"] = "9994"  # modify if RuntimeError: Address already in use
-# os.environ["RANK"] = "0"
-# os.environ["LOCAL_RANK"] = "0"
-# os.environ["WORLD_SIZE"] = "1"
+os.environ["MASTER_ADDR"] = "localhost"
+os.environ["MASTER_PORT"] = "9994"  # modify if RuntimeError: Address already in use
+os.environ["RANK"] = "0"
+os.environ["LOCAL_RANK"] = "0"
+os.environ["WORLD_SIZE"] = "1"
 
 # Set training parameters
 training_arguments = TrainingArguments(
@@ -196,7 +204,7 @@ training_arguments = TrainingArguments(
     report_to="tensorboard",
     skip_memory_metrics=False,
     gradient_checkpointing=gradient_checkpointing,
-    # deepspeed="ds_config_zero3.json",
+    deepspeed="ds_config_zero3.json",
 )
 
 # Set supervised fine-tuning parameters
@@ -211,17 +219,12 @@ trainer = SFTTrainer(
     packing=packing,
 )
 
-def count_parameters(model: torch.nn.Module):
-    print("num total param",  sum(p.numel() for p in model.parameters()))
-    print("num trainable param",  sum(p.numel() for p in model.parameters() if p.requires_grad))
-    print("total param size",  sum(p.numel() * p.element_size() for p in model.parameters()))
-    print("trainable param size",  sum(p.numel() * p.element_size() for p in model.parameters() if p.requires_grad))
-
 count_parameters(model)
+
 print('Active CUDA Device: GPU', torch.cuda.current_device())
 # Train model
-print_gpu_utilization()
-# result = trainer.train()
+# print_gpu_utilization()
+result = trainer.train()
 
 
 # Save trained model
