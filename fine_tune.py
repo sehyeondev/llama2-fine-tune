@@ -15,7 +15,7 @@ from trl import SFTTrainer
 from stat_utils import print_gpu_utilization, print_summary
 
 # The model that you want to train from the Hugging Face hub
-model_name = "NousResearch/Nous-Hermes-Llama2-13b"
+model_name = "NousResearch/Llama-2-7b-chat-hf"
 
 # The instruction dataset to use
 dataset_name = "mlabonne/guanaco-llama2-1k"
@@ -57,7 +57,7 @@ per_device_train_batch_size = 1
 per_device_eval_batch_size = 4
 
 # Number of update steps to accumulate the gradients for
-gradient_accumulation_steps = 1
+gradient_accumulation_steps = 16
 
 # Enable gradient checkpointing
 gradient_checkpointing = True
@@ -72,7 +72,7 @@ learning_rate = 2e-4
 weight_decay = 0.001
 
 # Optimizer to use
-optim = "paged_adamw_8bit"
+optim = "adamw_hf"
 
 # Learning rate schedule (constant a bit better than cosine)
 lr_scheduler_type = "constant"
@@ -98,7 +98,7 @@ logging_steps = 1
 ################################################################################
 
 # Maximum sequence length to use
-max_seq_length = None
+max_seq_length = 1024
 
 # Pack multiple short examples in the same input sequence to increase efficiency
 packing = False

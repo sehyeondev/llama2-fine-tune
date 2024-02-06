@@ -162,3 +162,4 @@ cython_debug/
 results
 outputs
 *.txt
+!requirements*.txt
